@@ -7,38 +7,46 @@
 
 #include "lib/ssd1306_i2c.h"
 
+// Definição dos pinos para LEDs
 #define LED_R_PIN 13
 #define LED_G_PIN 11
 #define LED_B_PIN 12
 
+// Definição dos pinos dos botões
 #define BTN_A 5
 
+// Definição dos pinos do joystick
 #define JOY_X 26
 #define JOY_Y 27
 #define JOY_BTN 22
 
+// Definição dos pinos do display OLED
 #define DISPLAY_SDA 14
 #define DISPLAY_SCL 15
 
+// Definições relacionadas à resolução do ADC e PWM
 #define ADC_WRAP 4096
 #define CLK_DIV 16.0
 
 #define ADC_CHANNEL_0 0
 #define ADC_CHANNEL_1 1
 
+// Zona morta e valor central para o joystick
 #define DEAD_ZONE 200
 #define CENTER_VALUE 2048
 
+// Tamanho do display OLED
 #define SSD1306_HEIGHT 64
 #define SSD1306_WIDTH 128
 
+// Definições da borda do display (sem tocar na borda)
 #define BORDER_HEIGHT 63
 #define BORDER_WIDTH 127
 
-// variable to manage the display
+// Variáveis para gerenciar o buffer do display
 uint8_t ssd[ssd1306_buffer_length];
 
-// struct canva to the display
+// Estrutura para a área de renderização do display
 struct render_area frame_area = {
     start_column : 0,
     end_column : BORDER_WIDTH,
@@ -46,30 +54,30 @@ struct render_area frame_area = {
     end_page : ssd1306_n_pages - 1
 };
 
-// Time to debounce
+// Tempo para debouncing
 static uint32_t last_time = 0;
 
-// state varuables for the LEDs
+// Variáveis de estado para os LEDs
 static volatile bool led_r_state = true;
 static volatile bool led_g_state = false;
 static volatile bool led_b_state = true;
 
-// flag to control the border display
+// Flags para controlar a borda do display
 static volatile bool display_border_alternate = false;
 static volatile bool display_border_on = false;
 typedef enum {FIRST_BORDER, SECOND_BORDER, THIRD_BORDER, NO_BORDER} border_type;
 static border_type current_border = FIRST_BORDER;
 
 /* 
-    Measure the display width and height without the border
-    display width - 8 - 1(to don't touch in the border) = 119
-    display height - 8 - 1(to don't touch in the border) = 55
+    Medir a largura e altura do display sem a borda
+    largura do display - 8 - 1 (para não tocar na borda) = 119
+    altura do display - 8 - 1 (para não tocar na borda) = 55
 */
 
 static uint height_with_square = 55;
 static uint width_with_square = 119;
 
-// functions prototypes
+// Prototipação das funções
 static void gpio_irq_handler(uint gpio, uint32_t events);
 static bool debounce(uint32_t *last_time);
 static uint setup_pwm(uint pwm_pin);
@@ -100,8 +108,7 @@ extern void ssd1306_init_bm(ssd1306_t *ssd, uint8_t width, uint8_t height, bool 
 extern void ssd1306_send_data(ssd1306_t *ssd);
 extern void ssd1306_draw_bitmap(ssd1306_t *ssd, const uint8_t *bitmap);
 
-
-// global variables
+// Variáveis globais para gerenciar PWM e o joystick
 uint slice_r, slice_b;
 uint16_t vrx_value, vry_value;
 uint x,y;
@@ -116,28 +123,28 @@ int main()
 
     while (true) {
         
-        // read the converted values from the joystick
+        // Lê os valores convertidos do joystick
         read_joystick_axis(&vrx_value, &vry_value);
 
-        // mapping the values from the joystick to the display
+        // Mapeia os valores do joystick para a tela
         map(vrx_value, vry_value);
 
-        // adjust PWM values
+        // Ajusta os valores PWM para os LEDs
         vrx_value = adjust_value(vrx_value);
         vry_value = adjust_value(vry_value);
 
-        // update the intensity of the red LED
+        // Atualiza a intensidade do LED vermelho
         pwm_set_gpio_level(LED_R_PIN, vrx_value);
-        // update the intensity of the blue LED
+        // Atualiza a intensidade do LED azul
         pwm_set_gpio_level(LED_B_PIN, vry_value);
 
-        // clear the previous square
+        // Limpa o quadrado anterior
         draw_square(prev_x, prev_y, false);
         
-        // draw the buffer square
+        // Desenha o quadrado no novo local
         draw_square(x,y, true);        
 
-        // check if the joystick button is pressed
+        // Verifica se o botão do joystick foi pressionado
         if(display_border_alternate) {
             switch (current_border) {
             case FIRST_BORDER:
@@ -159,14 +166,14 @@ int main()
             default:
                 break;
             }
-            current_border = (current_border + 1) % 4; // switch between the borders
+            current_border = (current_border + 1) % 4; // Alterna entre as bordas
             display_border_alternate = !display_border_alternate;
         }
-        // save the coordinates to clear the square in the next iteration
+        // Salva as coordenadas para limpar o quadrado na próxima iteração
         prev_x = x;
         prev_y = y;
     
-        // render the buffer on the display
+        // Renderiza o buffer no display
         render_on_display(ssd, &frame_area);
         sleep_ms(10);
     }
@@ -175,29 +182,29 @@ int main()
 void init_hardware() {
     stdio_init_all();
 
-    // Initialize the button A pin
+    // Inicializa o pino do botão A
     gpio_init(BTN_A);
     gpio_set_dir(BTN_A, GPIO_IN);
     gpio_pull_up(BTN_A);
 
-    // Initialize the button Joystick pin
+    // Inicializa o pino do botão do joystick
     gpio_init(JOY_BTN);
     gpio_set_dir(JOY_BTN, GPIO_IN);
     gpio_pull_up(JOY_BTN);
 
-    //LEDs
+    // Inicializa os LEDs
     slice_r = setup_pwm(LED_R_PIN);
     slice_b = setup_pwm(LED_B_PIN);
-    // Initialize the green LED pin
+    // Inicializa o pino do LED verde
     gpio_init(LED_G_PIN);
     gpio_set_dir(LED_G_PIN, GPIO_OUT);
 
-    // Inicializando joystick
+    // Inicializa o joystick
     adc_init();
     adc_gpio_init(JOY_X);
     adc_gpio_init(JOY_Y);
 
-    //display
+    // Inicializa o display OLED
     i2c_init(i2c1, 1000000);
     gpio_set_function(DISPLAY_SDA, GPIO_FUNC_I2C);
     gpio_set_function(DISPLAY_SCL, GPIO_FUNC_I2C);
@@ -207,7 +214,7 @@ void init_hardware() {
 
     calculate_render_area_buffer_length(&frame_area);
 
-    // Acionando interrupcoes
+    // Configura as interrupções para os botões
     gpio_set_irq_enabled_with_callback(BTN_A, GPIO_IRQ_EDGE_FALL, true, gpio_irq_handler);
     gpio_set_irq_enabled_with_callback(JOY_BTN, GPIO_IRQ_EDGE_FALL, true, gpio_irq_handler);
 }
@@ -221,17 +228,17 @@ static uint setup_pwm(uint pwm_pin) {
     pwm_set_gpio_level(pwm_pin, 0);
     pwm_set_enabled(slice, true);
 
-    //freq = 1,9 KHz
+    // Frequência do PWM é 1,9 KHz
 
     return slice;
 }
 
 static void gpio_irq_handler(uint gpio, uint32_t events) {
     if (debounce(&last_time)) {
-        // disable PWM from the blue and red LEDs
+        // Desativa o PWM dos LEDs vermelho e azul
         if(gpio == BTN_A) {
             printf(
-                "Botao a pressionado\n"
+                "Botão A pressionado\n"
                 "Alternando estado dos PWMs\n"
             );
 
@@ -243,9 +250,9 @@ static void gpio_irq_handler(uint gpio, uint32_t events) {
             gpio_put(LED_R_PIN, led_r_state);
             gpio_put(LED_B_PIN, led_b_state);
         } else {
-            // change the green led state and the border display
+            // Muda o estado do LED verde e alterna as bordas
             printf(
-                    "Botao joystick pressionado\n"
+                    "Botão joystick pressionado\n"
                     "Alternando estado do LED verde\n"
                     "Alternando borda\n"
                 );
@@ -259,7 +266,7 @@ static void gpio_irq_handler(uint gpio, uint32_t events) {
     }
 }
 
-// debounce function
+// Função de debouncing
 static bool debounce(uint32_t *last_time) {
     uint32_t current_time = to_us_since_boot(get_absolute_time());
 
@@ -270,7 +277,7 @@ static bool debounce(uint32_t *last_time) {
     return false;
 }
 
-// function to adjust the value of the joystick
+// Função para ajustar os valores do joystick
 static uint16_t read_joystick_axis(uint16_t *vrx, uint16_t *vry) {
     adc_select_input(ADC_CHANNEL_0);
     sleep_us(2);
@@ -281,7 +288,7 @@ static uint16_t read_joystick_axis(uint16_t *vrx, uint16_t *vry) {
     *vrx = adc_read();
 }
 
-// function to set the dead zone of the joystick and control leds intensity
+// Função para ajustar a zona morta do joystick e controlar a intensidade dos LEDs
 static uint16_t adjust_value(uint16_t value) {
     if (value > CENTER_VALUE + DEAD_ZONE) {
         return value - (CENTER_VALUE + DEAD_ZONE);
@@ -299,7 +306,9 @@ static void draw_square(uint x0, uint y0, bool set) {
     ssd1306_draw_line(ssd, x0 + 8, y0, x0 + 8, y0 + 8, set);
 }
 
-// Border 1
+// Funções para desenhar bordas
+
+// Borda 1
 static void draw_border(bool set) {
     ssd1306_draw_line(ssd, 0, 0, BORDER_WIDTH, 0, set);
     ssd1306_draw_line(ssd, 0, 0, 0, BORDER_HEIGHT, set);
@@ -307,7 +316,7 @@ static void draw_border(bool set) {
     ssd1306_draw_line(ssd, 0, BORDER_HEIGHT, BORDER_WIDTH, BORDER_HEIGHT, set);
 }
 
-// Border 2
+// Borda 2
 static void draw_dashed_border(bool set) {
     for (int i = 0; i < BORDER_WIDTH; i += 4) {
         ssd1306_set_pixel(ssd, i, 0, set);
@@ -319,15 +328,15 @@ static void draw_dashed_border(bool set) {
     }
 }
 
-// Border 3
+// Borda 3
 static void draw_double_line_border(bool set) {
-    // Outer border
+    // Borda externa
     ssd1306_draw_line(ssd, 0, 0, BORDER_WIDTH, 0, set);
     ssd1306_draw_line(ssd, 0, 0, 0, BORDER_HEIGHT, set);
     ssd1306_draw_line(ssd, BORDER_WIDTH, 0, BORDER_WIDTH, BORDER_HEIGHT, set);
     ssd1306_draw_line(ssd, 0, BORDER_HEIGHT, BORDER_WIDTH, BORDER_HEIGHT, set);
 
-    // Inner border
+    // Borda interna
     ssd1306_draw_line(ssd, 3, 3, BORDER_WIDTH - 3, 3, set);
     ssd1306_draw_line(ssd, 3, 3, 3, BORDER_HEIGHT - 3, set);
     ssd1306_draw_line(ssd, BORDER_WIDTH - 3, 3, BORDER_WIDTH - 3, BORDER_HEIGHT - 3, set);
@@ -338,7 +347,7 @@ static int map(uint raw_coord_x, uint raw_coord_y) {
     uint min_x, min_y;
     uint max_x, max_y; 
 
-    // Garante que o quadrado nao toque nas bordas
+    // Garante que o quadrado não toque nas bordas
     if (display_border_on || FIRST_BORDER + 1) {
         min_x = 1;
         min_y = 1;
